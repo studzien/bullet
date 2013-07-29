@@ -191,8 +191,12 @@ start_get_mode(eventsource, Req) ->
 	Headers = [{<<"content-type">>, <<"text/event-stream">>}],
 	{ok, _} = cowboy_req:chunked_reply(200, Headers, Req).
 
+reply_get_mode(poll, {binary, Data}, Req) ->
+    reply_get_mode(poll, Data, Req);
 reply_get_mode(poll, Data, Req) ->
 	{ok, _} = cowboy_req:reply(200, [], Data, Req);
+reply_get_mode(eventsource, {binary, Data}, Req) ->
+    reply_get_mode(eventsource, Data, Req);
 reply_get_mode(eventsource, Data, Req) ->
 	Bin = iolist_to_binary(Data),
 	Event = [[<<"data: ">>, Line, <<"\n">>] ||

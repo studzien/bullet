@@ -250,6 +250,8 @@
 				return false;
 			}
 
+            transport.binaryType = "arraybuffer";
+
 			transport.onopen = function(){
 				// We got a connection, reset the poll delay
 				delay = delayDefault;
@@ -328,4 +330,90 @@
 	};
 
 	return stream;
+}})})(jQuery);
+
+(function($){$.extend({bert: function(url, options){
+    var bullet = $.bullet(url, options);
+
+    var adapter = new function() {
+        var ts = 0;
+        var deferreds = {};
+
+        var send = function(term) {
+            var len = term.length;
+            var byteArray = new Uint8Array(len);
+            for (var i=0; i<len; ++i) {
+                byteArray[i] = term.charCodeAt(i);
+            }
+            bullet.send(byteArray.buffer);
+        };
+
+        this.call = function(message, timeout = 5000) {
+            var timestamp = ++ts;
+            var term = Bert.tuple(Bert.atom("call"), timestamp, message);
+            var deferred = Q.defer();
+            deferred.promise
+                .timeout(timeout)
+                .then(function(reply) {
+                    return reply;
+                },
+                function(error) {
+                    console.log(error);
+                })
+            .fin(function() {
+                delete deferreds[timestamp];
+            })
+            .done();
+            deferreds[timestamp] = deferred;
+            send(Bert.encode(term));
+        };
+
+        this.cast = function(message) {
+            var timestamp = ++ts;
+            var term = Bert.tuple(Bert.atom("cast"), timestamp, message);
+            send(Bert.encode(term));
+        };
+
+        bullet.onopen = function() {
+            console.log('WebSocket opened!');
+        };
+
+        bullet.onclose = function() {
+            console.log('WebSocket closed!');
+        };
+
+        bullet.onmessage = function(message) {
+            var data=message.data;
+            if(data == "pong") {
+                //ok, pong
+                return;
+            }
+            console.log(message);
+            if(data instanceof ArrayBuffer) {
+                var byteArray = new Uint8Array(data);
+                var byteString = Bert.bytes_to_string(byteArray);
+            }
+            else {
+                var byteString = data;
+            }
+            var term = Bert.decode(byteString);
+            if(term.type == "Tuple" && term.length == 3 &&
+                    term[0].type == "Atom" && term[0].value == "reply") {
+                var timestamp = term[1];
+                var deferred = deferreds[timestamp];
+                deferred.resolve(term[2]);
+                delete deferreds[timestamp];
+            }
+            else {
+                // bump timestamp
+                //ts = Math.max(ts+1, timestamp);
+            }
+        };
+
+        bullet.onheartbeat = function() {
+            bullet.send('ping');
+        };
+    };
+
+    return adapter;
 }})})(jQuery);

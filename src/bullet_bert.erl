@@ -1,6 +1,6 @@
 -module(bullet_bert).
 
--record(state, {handler, handler_state, vector_clock=0}).
+-record(state, {handler, handler_state, timestamp=0}).
 
 -export([init/4, stream/3, info/3, terminate/2]).
 
@@ -34,20 +34,22 @@ init(_Transport, Req, [{handler,_},{callbacks,Handler},{args,Args}], _Active) ->
             {shutdown, State#state{handler_state=HandlerState}}
     end.
 
+stream(<<"ping">>, Req, State) ->
+    {reply, <<"pong">>, Req, State};
 stream(Data, Req, State) ->
     try
         handle_stream(bert:decode(Data), Req, State)
     catch _:_ ->
-        handle_error(Req, State)
+        {ok, Req, State}
     end.
 
 info(Info, Req, #state{handler=Handler, handler_state=HandlerState}=State) ->
-    #state{vector_clock=VectorClock} = State1 = bump_vector_clock(State),
+    #state{timestamp=Timestamp} = State1 = bump_timestamp(State),
     case Handler:handle_info(Info, HandlerState) of
         {noreply, NewHandlerState} ->
             {ok, Req, State1#state{handler_state=NewHandlerState}};
         {reply, Reply, NewHandlerState} ->
-            handle_reply(info, Reply, VectorClock, Req,
+            handle_reply(info, Reply, Timestamp, Req,
                          State1#state{handler_state=NewHandlerState})
     end.
 
@@ -57,17 +59,17 @@ terminate(_Req, #state{handler=Handler, handler_state=HandlerState}) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-handle_stream({call, VectorClock, Term}, Req,
+handle_stream({call, Timestamp, Term}, Req,
               #state{handler=Handler, handler_state=HandlerState}=State) ->
-    State1 = bump_vector_clock(State, VectorClock),
+    State1 = bump_timestamp(State, Timestamp),
     case Handler:handle_call(Term, HandlerState) of
         {reply, Reply, NewHandlerState} ->
-            handle_reply(reply, Reply, VectorClock, Req,
+            handle_reply(reply, Reply, Timestamp, Req,
                          State1#state{handler_state=NewHandlerState})
     end;
-handle_stream({cast, VectorClock, Term}, Req,
+handle_stream({cast, Timestamp, Term}, Req,
               #state{handler=Handler, handler_state=HandlerState}=State) ->
-    State1 = bump_vector_clock(State, VectorClock),
+    State1 = bump_timestamp(State, Timestamp),
     case Handler:handle_cast(Term, HandlerState) of
         {noreply, NewHandlerState} ->
             {ok, Req, State1#state{handler_state=NewHandlerState}}
@@ -75,17 +77,12 @@ handle_stream({cast, VectorClock, Term}, Req,
 handle_stream(_, Req, State) ->
     {ok, Req, State}.
 
-handle_reply(Tag, HandlerReply, VectorClock, Req, State) ->
-    Reply = bert:encode({Tag, VectorClock, HandlerReply}),
+handle_reply(Tag, HandlerReply, Timestamp, Req, State) ->
+    Reply = bert:encode({Tag, Timestamp, HandlerReply}),
     {reply, {binary, Reply}, Req, State}. 
 
-handle_error(Req, State) ->
-    State1 = bump_vector_clock(State),
-    Error = bert:encode({error, State1#state.vector_clock}),
-    {reply, {binary, Error}, Req, State}.
+bump_timestamp(#state{timestamp=LocalTS}=State) ->
+    State#state{timestamp=LocalTS+1}.
 
-bump_vector_clock(#state{vector_clock=LocalVC}=State) ->
-    State#state{vector_clock=LocalVC+1}.
-
-bump_vector_clock(#state{vector_clock=LocalVC}=State, RemoteVC) ->
-    State#state{vector_clock=erlang:max(LocalVC+1, RemoteVC)}.
+bump_timestamp(#state{timestamp=LocalTS}=State, RemoteTS) ->
+    State#state{timestamp=erlang:max(LocalTS+1, RemoteTS)}.
