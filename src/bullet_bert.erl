@@ -25,9 +25,9 @@
 %%--------------------------------------------------------------------
 %% Bullet handler callbacks
 %%--------------------------------------------------------------------
-init(_Transport, Req, [Handler, ListOfArgs], _Active) ->
+init(_Transport, Req, [{handler,_},{callbacks,Handler},{args,Args}], _Active) ->
     State = #state{handler=Handler},
-    case Handler:init(ListOfArgs) of
+    case Handler:init(Args) of
         {ok, HandlerState} ->
             {ok, Req, State#state{handler_state=HandlerState}};
         {stop, HandlerState} ->
@@ -42,12 +42,12 @@ stream(Data, Req, State) ->
     end.
 
 info(Info, Req, #state{handler=Handler, handler_state=HandlerState}=State) ->
-    State1 = bump_vector_clock(State),
+    #state{vector_clock=VectorClock} = State1 = bump_vector_clock(State),
     case Handler:handle_info(Info, HandlerState) of
         {noreply, NewHandlerState} ->
             {ok, Req, State1#state{handler_state=NewHandlerState}};
         {reply, Reply, NewHandlerState} ->
-            handle_reply(Reply, Req,
+            handle_reply(info, Reply, VectorClock, Req,
                          State1#state{handler_state=NewHandlerState})
     end.
 
@@ -62,7 +62,7 @@ handle_stream({call, VectorClock, Term}, Req,
     State1 = bump_vector_clock(State, VectorClock),
     case Handler:handle_call(Term, HandlerState) of
         {reply, Reply, NewHandlerState} ->
-            handle_reply(Reply, Req,
+            handle_reply(reply, Reply, VectorClock, Req,
                          State1#state{handler_state=NewHandlerState})
     end;
 handle_stream({cast, VectorClock, Term}, Req,
@@ -75,13 +75,13 @@ handle_stream({cast, VectorClock, Term}, Req,
 handle_stream(_, Req, State) ->
     {ok, Req, State}.
 
-handle_reply(HandlerReply, Req, #state{vector_clock=VectorClock}=State) ->
-    Reply = {reply, VectorClock, HandlerReply},
+handle_reply(Tag, HandlerReply, VectorClock, Req, State) ->
+    Reply = bert:encode({Tag, VectorClock, HandlerReply}),
     {reply, {binary, Reply}, Req, State}. 
 
 handle_error(Req, State) ->
     State1 = bump_vector_clock(State),
-    Error = {error, State1#state.vector_clock},
+    Error = bert:encode({error, State1#state.vector_clock}),
     {reply, {binary, Error}, Req, State}.
 
 bump_vector_clock(#state{vector_clock=LocalVC}=State) ->
