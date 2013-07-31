@@ -16,10 +16,12 @@
 	{description,
 		"Simple, reliable, efficient streaming for Cowboy."},
 	{vsn, "0.4.1"},
-	{modules, []},
+	{modules, [bullet_sup]},
 	{applications, [
 		kernel,
 		stdlib,
 		cowboy
-	]}
+	]},
+    {mod, {bullet_app, []}},
+    {env, []}
 ]}.
