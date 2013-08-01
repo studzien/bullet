@@ -23,8 +23,8 @@ start_link() ->
 
 init([]) ->
     {ok, { {simple_one_for_one, 5, 10}, [
-                {bullet_client,
-                 {bullet_client, start_link, []},
+                {bullet_bert,
+                 {bullet_bert, start_link, []},
                  transient,
                  5000,
                  worker,
